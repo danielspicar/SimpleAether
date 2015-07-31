@@ -1,1 +1,1 @@
-# SimpleAether
+# Simple Aether
