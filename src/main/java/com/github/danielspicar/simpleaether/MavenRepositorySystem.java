@@ -45,23 +45,176 @@ import java.util.*;
 public class MavenRepositorySystem {
     private final static Logger logger = LoggerFactory.getLogger(MavenRepositorySystem.class);
 
-    private RepositorySystem repositorySystem;
-    private RemoteRepository centralRepository;
-    private LocalRepository localRepository;
-    private List<RemoteRepository> additionalRepositories;
-    private Settings settings;
-    private Set<String> globalExclusions;
+    private final RepositorySystem repositorySystem;
+    private final LocalRepository localRepository;
+    private final List<RemoteRepository> remoteRepositories;
+    private final Settings settings;
+    private final Set<String> globalExclusions;
+
+    public static class Builder {
+        private RepositorySystem repositorySystem = null;
+        private List<RemoteRepository> remoteRepositories = new LinkedList<RemoteRepository>();
+        private LocalRepository localRepository = null;
+        private Settings settings = null;
+        private Set<String> globalExclusions = new HashSet<String>();
+
+        /**
+         * Creates a repository specification.
+         *
+         * @param id    some user defined ID for the repository
+         * @param type  the repository type. typically "default".
+         * @param url   the repository URL.
+         * @return the repository specification.
+         */
+        public static RemoteRepository createRemoteRepository(String id, String type, String url) {
+            return new RemoteRepository.Builder(id, type, url).build();
+        }
+
+        public Builder withRepositorySystem(RepositorySystem repositorySystem) {
+            this.repositorySystem = repositorySystem;
+            return this;
+        }
+
+        public Builder withDefaultRepositorySystem() {
+            this.repositorySystem = defaultRepositorySystem();
+            return this;
+        }
+
+        public Builder withSettings(Settings settings) {
+            this.settings = settings;
+            return this;
+        }
+
+        public Builder withDefaultSettings() {
+            this.settings = defaultMavenSettings();
+            return this;
+        }
+
+        public Builder withLocalRepository(File baseDir) {
+            this.localRepository = new LocalRepository(baseDir);
+            return this;
+        }
+
+        public Builder withLocalRepository(String baseDir) {
+            this.localRepository = new LocalRepository(baseDir);
+            return this;
+        }
+
+        public Builder withLocalRepository(File baseDir, String type) {
+            this.localRepository = new LocalRepository(baseDir, type);
+            return this;
+        }
+
+        public Builder withLocalRepository(String baseDir, String type) {
+            this.localRepository = new LocalRepository(new File(baseDir), type);
+            return this;
+        }
+
+        public Builder withDefaultLocalRepository() {
+            this.localRepository = defaultLocalRepository(null);
+            return this;
+        }
+
+        public Builder withRemoteRepositories(RemoteRepository... repositories) {
+            this.remoteRepositories.addAll(Arrays.asList(repositories));
+            return this;
+        }
+
+        public Builder withMavenCentralRepository() {
+            this.remoteRepositories.add(centralRepository());
+            return this;
+        }
+
+        public Builder withGlobalExclusions(String... exclusions) {
+            for(String exclusion : exclusions) {
+                this.globalExclusions.add(exclusion);
+            }
+            return this;
+        }
+
+        public MavenRepositorySystem build() {
+            if(this.repositorySystem == null) {
+                this.repositorySystem = defaultRepositorySystem();
+            }
+
+            if(this.settings == null) {
+                this.settings = defaultMavenSettings();
+            }
+
+            if(this.localRepository == null) {
+                this.localRepository = defaultLocalRepository(this.settings);
+            }
+
+            return new MavenRepositorySystem(this.repositorySystem, this.settings, this.localRepository, this.remoteRepositories, this.globalExclusions);
+        }
+
+        private LocalRepository defaultLocalRepository(Settings settings) {
+            String repoPath = null;
+            if(settings != null) {
+                repoPath = settings.getLocalRepository();
+            }
+            if(repoPath == null || repoPath.isEmpty()) {
+                return new LocalRepository(new File(new File(System.getProperty("user.home"), ".m2"), "repository"));
+            } else {
+                return new LocalRepository(new File(repoPath));
+            }
+        }
+
+        private RepositorySystem defaultRepositorySystem() {
+            DefaultServiceLocator locator = MavenRepositorySystemUtils.newServiceLocator();
+            locator.addService(RepositoryConnectorFactory.class, BasicRepositoryConnectorFactory.class);
+            locator.addService(TransporterFactory.class, FileTransporterFactory.class);
+            locator.addService(TransporterFactory.class, HttpTransporterFactory.class);
+            locator.addService(TransporterFactory.class, WagonTransporterFactory.class);
+            locator.setService(WagonProvider.class, SimpleWagonProvider.class);
+
+            locator.setErrorHandler(new DefaultServiceLocator.ErrorHandler() {
+                @Override
+                public void serviceCreationFailed(Class<?> type, Class<?> impl, Throwable exception) {
+                    logger.error("ServiceLocatorError: ", exception);
+                }
+            });
+
+            return locator.getService(RepositorySystem.class);
+        }
+
+        private Settings defaultMavenSettings() {
+            try {
+                File settingsXml = new File(new File(System.getProperty("user.home"), ".m2"), "settings.xml");
+                if(settingsXml.canRead()) {
+                    SettingsBuilder settingsBuilder = new DefaultSettingsBuilderFactory().newInstance();
+                    SettingsBuildingRequest request = new DefaultSettingsBuildingRequest();
+                    request.setSystemProperties(System.getProperties());
+                    request.setUserSettingsFile(settingsXml);
+
+                    return settingsBuilder.build(request).getEffectiveSettings();
+                }
+            } catch (SettingsBuildingException ex) {
+                logger.warn("Could not build settings from user settings.xml.", ex);
+            }
+
+            return new Settings();
+        }
+
+        /**
+         * Creates the Maven central repository specification.
+         *
+         * @return the Maven central repository specification.
+         */
+        private RemoteRepository centralRepository() {
+            return createRemoteRepository("central", "default", "http://repo1.maven.org/maven2/");
+        }
+    }
 
     /**
      * Creates a new MavenRepositorySystem.
      */
-    public MavenRepositorySystem() {
-        this.repositorySystem = initRepositorySystem();
-        this.settings = buildMavenSettings();
-        this.localRepository = new LocalRepository(getDefaultLocalRepository(settings));
-        this.centralRepository = createCentralRepository();
-        this.additionalRepositories = new ArrayList<RemoteRepository>();
-        this.globalExclusions = new HashSet<String>();
+    protected MavenRepositorySystem(RepositorySystem repositorySystem, Settings settings, LocalRepository localRepository, List<RemoteRepository> remoteRepositories, Set<String> globalExclusions) {
+        this.repositorySystem = repositorySystem;
+        this.settings = settings;
+        this.localRepository = localRepository;
+        this.remoteRepositories = remoteRepositories;
+        this.globalExclusions = globalExclusions;
     }
 
     /**
@@ -94,6 +247,20 @@ public class MavenRepositorySystem {
     }
 
     /**
+     *
+     */
+    public List<Artifact> resolveDependencyArtifactsFromPom(File pom) {
+        Model model = getEffectiveModel(pom);
+        List<Artifact> artifacts = new LinkedList<Artifact>();
+        for(org.apache.maven.model.Dependency dependency : model.getDependencies()) {
+            Artifact artifact = new DefaultArtifact(dependency.getGroupId(), dependency.getArtifactId(), dependency.getType(), dependency.getVersion());
+            artifacts.add(artifact);
+        }
+
+        return artifacts;
+    }
+
+    /**
      * Resolve an artifact and all its runtime dependencies.
      */
     public List<File> resolveDependencies(String groupId, String artifactId, String classifier, String extension, String version) throws DependencyResolutionException {
@@ -122,18 +289,19 @@ public class MavenRepositorySystem {
         DependencyFilter classpathFilter =
                 DependencyFilterUtils.classpathFilter(JavaScopes.RUNTIME);
 
-        PatternExclusionsDependencyFilter patternExclusionFilter = new PatternExclusionsDependencyFilter(globalExclusions);
+        PatternExclusionsDependencyFilter patternExclusionFilter = new PatternExclusionsDependencyFilter(this.globalExclusions);
         DependencyFilter filter = DependencyFilterUtils.andFilter(classpathFilter, patternExclusionFilter);
 
         CollectRequest collectRequest = new CollectRequest();
         collectRequest.setRoot(dependency);
-        for(RemoteRepository repository : getRepositories(toRemoteRepositories(repositories))) {
+        collectRequest.setRepositories(this.remoteRepositories);
+        for(RemoteRepository repository : toRemoteRepositories(repositories)) {
             collectRequest.addRepository(repository);
         }
         DependencyRequest dependencyRequest = new DependencyRequest();
         dependencyRequest.setCollectRequest(collectRequest);
         dependencyRequest.setFilter(filter);
-        DependencyResult result = repositorySystem.resolveDependencies(session, dependencyRequest);
+        DependencyResult result = this.repositorySystem.resolveDependencies(session, dependencyRequest);
 
         PreorderNodeListGenerator listGen = new PreorderNodeListGenerator();
         result.getRoot().accept(listGen);
@@ -142,15 +310,12 @@ public class MavenRepositorySystem {
     }
 
     /**
-     * Add an additional repository.
-     *
-     * NOTE: the local repository and the Maven central repository are added
-     * by default.
+     * Add a remote repository.
      *
      * @param repository The repository to use.
      */
     public void addRepository(RemoteRepository repository) {
-        this.additionalRepositories.add(repository);
+        this.remoteRepositories.add(repository);
     }
 
     /**
@@ -159,7 +324,7 @@ public class MavenRepositorySystem {
      * @param repository the repository to remove.
      */
     public void removeRepository(RemoteRepository repository) {
-        this.additionalRepositories.remove(repository);
+        this.remoteRepositories.remove(repository);
     }
 
     /**
@@ -191,7 +356,7 @@ public class MavenRepositorySystem {
         ModelBuildingRequest req = new DefaultModelBuildingRequest();
         req.setProcessPlugins(false);
         req.setPomFile(pom);
-        req.setModelResolver(new SimpleModelResolver(repositorySystem, createSession(), getRepositories(Collections.EMPTY_LIST)));
+        req.setModelResolver(new SimpleModelResolver(this.repositorySystem, createSession(), getRemoteRepositories()));
         req.setValidationLevel(ModelBuildingRequest.VALIDATION_LEVEL_MINIMAL);
 
         ModelBuilder builder = new DefaultModelBuilderFactory().newInstance();
@@ -207,29 +372,10 @@ public class MavenRepositorySystem {
     /**
      * Get all configured repositories.
      *
-     * @param repositories additional repositories to include.
      * @return an unmodifyable list of repositories.
      */
-    public List<RemoteRepository> getRepositories(List<RemoteRepository> repositories) {
-        int size = additionalRepositories.size() + repositories.size() + 1;
-        List<RemoteRepository> remoteRepositories = new ArrayList<RemoteRepository>(size);
-        HashSet<RemoteRepository> set = new HashSet<RemoteRepository>(size);
-        set.add(centralRepository);
-        remoteRepositories.add(centralRepository);
-        for(RemoteRepository repository : additionalRepositories) {
-            if(set.add(repository)) {
-                remoteRepositories.add(repository);
-            }
-        }
-        for(RemoteRepository repository : repositories) {
-            if(set.add(repository)) {
-                remoteRepositories.add(repository);
-            }
-        }
-
-        set.clear();
-
-        return Collections.unmodifiableList(remoteRepositories);
+    public List<RemoteRepository> getRemoteRepositories() {
+        return Collections.unmodifiableList(this.remoteRepositories);
     }
 
     /**
@@ -270,75 +416,8 @@ public class MavenRepositorySystem {
         return string;
     }
 
-    private RepositorySystem initRepositorySystem() {
-        DefaultServiceLocator locator = MavenRepositorySystemUtils.newServiceLocator();
-        locator.addService(RepositoryConnectorFactory.class, BasicRepositoryConnectorFactory.class);
-        locator.addService(TransporterFactory.class, FileTransporterFactory.class);
-        locator.addService(TransporterFactory.class, HttpTransporterFactory.class);
-        locator.addService(TransporterFactory.class, WagonTransporterFactory.class);
-        locator.setService(WagonProvider.class, SimpleWagonProvider.class);
-
-        locator.setErrorHandler(new DefaultServiceLocator.ErrorHandler() {
-            @Override
-            public void serviceCreationFailed(Class<?> type, Class<?> impl, Throwable exception) {
-                logger.error("ServiceLocatorError: ", exception);
-            }
-        });
-
-        return locator.getService(RepositorySystem.class);
-    }
-
-    private Settings buildMavenSettings() {
-        try {
-            File settingsXml = new File(new File(System.getProperty("user.home"), ".m2"), "settings.xml");
-            if(settingsXml.canRead()) {
-                SettingsBuilder settingsBuilder = new DefaultSettingsBuilderFactory().newInstance();
-                SettingsBuildingRequest request = new DefaultSettingsBuildingRequest();
-                request.setSystemProperties(System.getProperties());
-                request.setUserSettingsFile(settingsXml);
-
-                return settingsBuilder.build(request).getEffectiveSettings();
-            }
-        } catch (SettingsBuildingException ex) {
-            logger.warn("Could not build settings from user settings.xml.", ex);
-        }
-
-        return new Settings();
-    }
-
-    private File getDefaultLocalRepository(Settings settings) {
-        String repoPath = settings.getLocalRepository();
-        if(repoPath == null || repoPath.isEmpty()) {
-            return new File(new File(System.getProperty("user.home"), ".m2"), "repository");
-        } else {
-            return new File(repoPath);
-        }
-    }
-
-    /**
-     * Creates the Maven central repository specification.
-     *
-     * @return the Maven central repository specification.
-     */
-    protected RemoteRepository createCentralRepository() {
-        return createRemoteRepository("central", "default", "http://repo1.maven.org/maven2/");
-    }
-
-    /**
-     * Creates a repository specification.
-     *
-     * @param id    some user defined ID for the repository
-     * @param type  the repository type. typically "default".
-     * @param url   the repository URL.
-     * @return the repository specification.
-     */
-    public RemoteRepository createRemoteRepository(String id, String type, String url) {
-        return new RemoteRepository.Builder(id, type, url).build();
-    }
-
     private List<RemoteRepository> toRemoteRepositories(List<Repository> repositories) {
-        List<RemoteRepository> remoteRepositories =
-                new ArrayList<RemoteRepository>(repositories.size());
+        List<RemoteRepository> remoteRepositories = new ArrayList<RemoteRepository>(repositories.size());
         for(Repository repository : repositories) {
             remoteRepositories.add(ArtifactDescriptorUtils.toRemoteRepository(repository));
         }
