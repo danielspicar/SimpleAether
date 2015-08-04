@@ -28,7 +28,7 @@ import org.eclipse.aether.resolution.ArtifactResolutionException;
  *
  * @author daniel
  */
-public class SimpleModelResolver implements ModelResolver {
+class SimpleModelResolver implements ModelResolver {
 
     private final RepositorySystem system;
     private final RepositorySystemSession session;
@@ -46,8 +46,8 @@ public class SimpleModelResolver implements ModelResolver {
                                List<RemoteRepository> remoteRepositories) {
         this.system = system;
         this.session = session;
-        this.repositories = new ArrayList<RemoteRepository>(remoteRepositories);
-        this.repositoryIds = new HashSet<String>(
+        this.repositories = new ArrayList<>(remoteRepositories);
+        this.repositoryIds = new HashSet<>(
                 remoteRepositories.size() < 3 ? 3 : remoteRepositories.size());
 
         for(RemoteRepository repository : remoteRepositories) {
@@ -63,7 +63,7 @@ public class SimpleModelResolver implements ModelResolver {
     private SimpleModelResolver(SimpleModelResolver original) {
         this.session = original.session;
         this.system = original.system;
-        this.repositoryIds = new HashSet<String>(original.repositoryIds);
+        this.repositoryIds = new HashSet<>(original.repositoryIds);
     }
 
     @Override

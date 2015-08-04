@@ -10,7 +10,7 @@ import org.eclipse.aether.RepositoryEvent;
  *
  * @author daniel
  */
-public class LoggingRepositoryListener extends AbstractRepositoryListener {
+class LoggingRepositoryListener extends AbstractRepositoryListener {
 
     private final static Logger logger =
             LoggerFactory.getLogger(LoggingRepositoryListener.class);

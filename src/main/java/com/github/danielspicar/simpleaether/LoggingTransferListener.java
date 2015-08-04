@@ -11,7 +11,7 @@ import org.eclipse.aether.transfer.TransferEvent;
  *
  * @author daniel
  */
-public class LoggingTransferListener extends AbstractTransferListener {
+class LoggingTransferListener extends AbstractTransferListener {
 
     private final static Logger logger =
             LoggerFactory.getLogger(LoggingRepositoryListener.class);

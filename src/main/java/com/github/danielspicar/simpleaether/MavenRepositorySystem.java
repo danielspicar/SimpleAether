@@ -40,7 +40,11 @@ import java.io.File;
 import java.util.*;
 
 /**
- * Created by danielspicar on 30/07/15.
+ * Simple interface to resolve maven style dependencies and download artifacts from the maven repository system.
+ *
+ * This class has no public constructor. Use {@link MavenRepositorySystem.Builder} to create new instances.
+ *
+ * @author daniel
  */
 public class MavenRepositorySystem {
     private final static Logger logger = LoggerFactory.getLogger(MavenRepositorySystem.class);
@@ -48,90 +52,187 @@ public class MavenRepositorySystem {
     private final RepositorySystem repositorySystem;
     private final LocalRepository localRepository;
     private final List<RemoteRepository> remoteRepositories;
-    private final Settings settings;
     private final Set<String> globalExclusions;
 
+    /**
+     * This class configures and builds new instances of {@link MavenRepositorySystem}.
+     */
     public static class Builder {
         private RepositorySystem repositorySystem = null;
-        private List<RemoteRepository> remoteRepositories = new LinkedList<RemoteRepository>();
+        private final List<RemoteRepository> remoteRepositories = new LinkedList<>();
         private LocalRepository localRepository = null;
         private Settings settings = null;
-        private Set<String> globalExclusions = new HashSet<String>();
+        private final Set<String> globalExclusions = new HashSet<>();
 
         /**
-         * Creates a repository specification.
+         * Creates a {@link RemoteRepository} instance from the elements of a maven artifact specification.
          *
          * @param id    some user defined ID for the repository
          * @param type  the repository type. typically "default".
          * @param url   the repository URL.
-         * @return the repository specification.
+         *
+         * @return the {@link RemoteRepository} specification.
          */
         public static RemoteRepository createRemoteRepository(String id, String type, String url) {
             return new RemoteRepository.Builder(id, type, url).build();
         }
 
+        /**
+         * Set the {@link RepositorySystem} instance to use with this {@link MavenRepositorySystem}.
+         *
+         * @param repositorySystem the instance
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         *
+         */
         public Builder withRepositorySystem(RepositorySystem repositorySystem) {
             this.repositorySystem = repositorySystem;
             return this;
         }
 
+        /**
+         * The default {@link RepositorySystem} as provided by the Aether service locator.
+         *
+         * @see MavenRepositorySystemUtils#newServiceLocator()
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withDefaultRepositorySystem() {
             this.repositorySystem = defaultRepositorySystem();
             return this;
         }
 
+        /**
+         * Use a specific instance of maven settings (e.g. for locating the local repository path).
+         *
+         * @param settings the settings instance
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withSettings(Settings settings) {
             this.settings = settings;
             return this;
         }
 
+        /**
+         * Use settings from USER_HOME/.m2/settings.xml or an empty settings instance.
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withDefaultSettings() {
             this.settings = defaultMavenSettings();
             return this;
         }
 
+        /**
+         * Use a specific local repository location (overriding the one specified in supplied settings or in settings.xml)
+         *
+         * @param baseDir The repository base directory.
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withLocalRepository(File baseDir) {
             this.localRepository = new LocalRepository(baseDir);
             return this;
         }
 
+        /**
+         * Use a specific local repository location (overriding the one specified in supplied settings or in settings.xml)
+         *
+         * @param baseDir The repository base directory.
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withLocalRepository(String baseDir) {
             this.localRepository = new LocalRepository(baseDir);
             return this;
         }
 
+        /**
+         * Use a specific local repository location (overriding the one specified in supplied settings or in settings.xml)
+         *
+         * @param baseDir The repository base directory.
+         * @param type the repository type (usually 'default'. Can be empty or null.
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withLocalRepository(File baseDir, String type) {
             this.localRepository = new LocalRepository(baseDir, type);
             return this;
         }
 
+        /**
+         * Use a specific local repository location (overriding the one specified in supplied settings or in settings.xml)
+         *
+         * @param baseDir The repository base directory.
+         * @param type the repository type (usually 'default'. Can be empty or null.
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withLocalRepository(String baseDir, String type) {
             this.localRepository = new LocalRepository(new File(baseDir), type);
             return this;
         }
 
+        /**
+         * Use USER_HOME/.m2/repository as the local repository.
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withDefaultLocalRepository() {
             this.localRepository = defaultLocalRepository(null);
             return this;
         }
 
+        /**
+         * Add {@link RemoteRepository} specifications to be used for resolving artifacts.
+         *
+         * @param repositories the {@link RemoteRepository} specifications.
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withRemoteRepositories(RemoteRepository... repositories) {
             this.remoteRepositories.addAll(Arrays.asList(repositories));
             return this;
         }
 
+        /**
+         * Add the maven central repository to the list of remote repositories.
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withMavenCentralRepository() {
             this.remoteRepositories.add(centralRepository());
             return this;
         }
 
+        /**
+         * Specify a patterns that exclude all matching artifacts from any
+         * dependency resolution.
+         *
+         * Each pattern segment is optional and supports full and partial * wildcards.
+         * An empty pattern segment is treated as an implicit wildcard.
+         *
+         * For example, org.apache.* would match all artifacts whose group id started
+         * with org.apache. , and :::*-SNAPSHOT would match all snapshot artifacts.
+         *
+         * @param exclusions [groupId]:[artifactId]:[extension]:[version]
+         *
+         * @return this {@link com.github.danielspicar.simpleaether.MavenRepositorySystem.Builder} instance for method chaining.
+         */
         public Builder withGlobalExclusions(String... exclusions) {
-            for(String exclusion : exclusions) {
-                this.globalExclusions.add(exclusion);
-            }
+            this.globalExclusions.addAll(Arrays.asList(exclusions));
             return this;
         }
 
+        /**
+         * Build an instance of {@link MavenRepositorySystem} with the currently configured settings.
+         *
+         * By default the default repository system of Eclipse Aether is used. Settings are read from USER_HOME/.m2/settings.xml.
+         * The default local repository is USER_HOME/.m2/repository or the configuration in the settings.
+         *
+         * @return a new instance of {@link MavenRepositorySystem}
+         */
         public MavenRepositorySystem build() {
             if(this.repositorySystem == null) {
                 this.repositorySystem = defaultRepositorySystem();
@@ -145,7 +246,7 @@ public class MavenRepositorySystem {
                 this.localRepository = defaultLocalRepository(this.settings);
             }
 
-            return new MavenRepositorySystem(this.repositorySystem, this.settings, this.localRepository, this.remoteRepositories, this.globalExclusions);
+            return new MavenRepositorySystem(this.repositorySystem, this.localRepository, this.remoteRepositories, this.globalExclusions);
         }
 
         private LocalRepository defaultLocalRepository(Settings settings) {
@@ -196,25 +297,68 @@ public class MavenRepositorySystem {
             return new Settings();
         }
 
-        /**
-         * Creates the Maven central repository specification.
-         *
-         * @return the Maven central repository specification.
-         */
         private RemoteRepository centralRepository() {
             return createRemoteRepository("central", "default", "http://repo1.maven.org/maven2/");
         }
     }
 
-    /**
-     * Creates a new MavenRepositorySystem.
-     */
-    protected MavenRepositorySystem(RepositorySystem repositorySystem, Settings settings, LocalRepository localRepository, List<RemoteRepository> remoteRepositories, Set<String> globalExclusions) {
+    private MavenRepositorySystem(RepositorySystem repositorySystem, LocalRepository localRepository, List<RemoteRepository> remoteRepositories, Set<String> globalExclusions) {
         this.repositorySystem = repositorySystem;
-        this.settings = settings;
         this.localRepository = localRepository;
         this.remoteRepositories = remoteRepositories;
         this.globalExclusions = globalExclusions;
+    }
+
+    /**
+     * Add a remote repository.
+     *
+     * @param repository The repository to use.
+     */
+    public void addRepository(RemoteRepository repository) {
+        this.remoteRepositories.add(repository);
+    }
+
+    /**
+     * Remove a repository.
+     *
+     * @param repository the repository to remove.
+     */
+    public void removeRepository(RemoteRepository repository) {
+        this.remoteRepositories.remove(repository);
+    }
+
+    /**
+     * Get all configured repositories.
+     *
+     * @return an unmodifiable list of repositories.
+     */
+    public List<RemoteRepository> getRemoteRepositories() {
+        return Collections.unmodifiableList(this.remoteRepositories);
+    }
+
+    /**
+     * Specify a pattern that excludes all matching artifacts from any
+     * dependency resolution.
+     *
+     * Each pattern segment is optional and supports full and partial * wildcards.
+     * An empty pattern segment is treated as an implicit wildcard.
+     *
+     * For example, org.apache.* would match all artifacts whose group id started
+     * with org.apache. , and :::*-SNAPSHOT would match all snapshot artifacts.
+     *
+     * @param pattern [groupId]:[artifactId]:[extension]:[version]
+     */
+    public void addGlobalExclusion(String pattern) {
+        globalExclusions.add(pattern);
+    }
+
+    /**
+     * Get all configured global exclusions.
+     *
+     * @return an unmodifiable list of global exclusions.
+     */
+    public Set<String> getGlobalExclusions() {
+        return Collections.unmodifiableSet(globalExclusions);
     }
 
     /**
@@ -237,13 +381,13 @@ public class MavenRepositorySystem {
      */
     public List<File> resolveDependenciesFromPom(File pom) throws DependencyResolutionException {
         Model model = getEffectiveModel(pom);
-        HashSet<File> files = new HashSet<File>();
+        HashSet<File> files = new HashSet<>();
         for(org.apache.maven.model.Dependency dependency : model.getDependencies()) {
             Artifact artifact = new DefaultArtifact(dependency.getGroupId(), dependency.getArtifactId(), dependency.getType(), dependency.getVersion());
             files.addAll(resolveDependencies(artifact, model.getRepositories(), getAetherExclusions(dependency)));
         }
 
-        return new ArrayList<File>(files);
+        return new ArrayList<>(files);
     }
 
     /**
@@ -251,7 +395,7 @@ public class MavenRepositorySystem {
      */
     public List<Artifact> resolveDependencyArtifactsFromPom(File pom) {
         Model model = getEffectiveModel(pom);
-        List<Artifact> artifacts = new LinkedList<Artifact>();
+        List<Artifact> artifacts = new LinkedList<>();
         for(org.apache.maven.model.Dependency dependency : model.getDependencies()) {
             Artifact artifact = new DefaultArtifact(dependency.getGroupId(), dependency.getArtifactId(), dependency.getType(), dependency.getVersion());
             artifacts.add(artifact);
@@ -263,6 +407,7 @@ public class MavenRepositorySystem {
     /**
      * Resolve an artifact and all its runtime dependencies.
      */
+    @SuppressWarnings("unchecked")
     public List<File> resolveDependencies(String groupId, String artifactId, String classifier, String extension, String version) throws DependencyResolutionException {
         Artifact artifact = new DefaultArtifact(groupId, artifactId, classifier, extension, version);
         return resolveDependencies(artifact, Collections.EMPTY_LIST, Collections.EMPTY_LIST);
@@ -281,7 +426,7 @@ public class MavenRepositorySystem {
      * @return
      *      The artifact and its transitive runtime dependencies as files.
      */
-    protected List<File> resolveDependencies(Artifact artifact, List<Repository> repositories, List<Exclusion> exclusions) throws DependencyResolutionException {
+    private List<File> resolveDependencies(Artifact artifact, List<Repository> repositories, List<Exclusion> exclusions) throws DependencyResolutionException {
 
         RepositorySystemSession session = createSession();
         Dependency dependency = new Dependency(artifact, JavaScopes.RUNTIME,
@@ -310,40 +455,6 @@ public class MavenRepositorySystem {
     }
 
     /**
-     * Add a remote repository.
-     *
-     * @param repository The repository to use.
-     */
-    public void addRepository(RemoteRepository repository) {
-        this.remoteRepositories.add(repository);
-    }
-
-    /**
-     * Remove a repository.
-     *
-     * @param repository the repository to remove.
-     */
-    public void removeRepository(RemoteRepository repository) {
-        this.remoteRepositories.remove(repository);
-    }
-
-    /**
-     * Specify a pattern that excludes all matching artifacts from any
-     * dependency resolution.
-     *
-     * Each pattern segment is optional and supports full and partial * wildcards.
-     * An empty pattern segment is treated as an implicit wildcard.
-     *
-     * For example, org.apache.* would match all artifacts whose group id started
-     * with org.apache. , and :::*-SNAPSHOT would match all snapshot artifacts.
-     *
-     * @param pattern [groupId]:[artifactId]:[extension]:[version]
-     */
-    public void addGlobalExclusion(String pattern) {
-        globalExclusions.add(pattern);
-    }
-
-    /**
      * Resolve the effective Maven model (pom) for a POM file.
      *
      * This resolves the POM hierarchy (parents and modules) and creates an
@@ -352,7 +463,7 @@ public class MavenRepositorySystem {
      * @param pom the POM file to resolve.
      * @return the effective model.
      */
-    protected Model getEffectiveModel(File pom) {
+    private Model getEffectiveModel(File pom) {
         ModelBuildingRequest req = new DefaultModelBuildingRequest();
         req.setProcessPlugins(false);
         req.setPomFile(pom);
@@ -369,21 +480,7 @@ public class MavenRepositorySystem {
         return new Model();
     }
 
-    /**
-     * Get all configured repositories.
-     *
-     * @return an unmodifyable list of repositories.
-     */
-    public List<RemoteRepository> getRemoteRepositories() {
-        return Collections.unmodifiableList(this.remoteRepositories);
-    }
-
-    /**
-     * Creates a repository session.
-     *
-     * @return the repository session.
-     */
-    protected RepositorySystemSession createSession() {
+    private RepositorySystemSession createSession() {
         DefaultRepositorySystemSession session = MavenRepositorySystemUtils.newSession();
         session.setLocalRepositoryManager(repositorySystem.newLocalRepositoryManager(session, localRepository));
         session.setTransferListener(new LoggingTransferListener());
@@ -399,9 +496,9 @@ public class MavenRepositorySystem {
      * @param dependency the Maven dependency.
      * @return the Sonatype exclusion.
      */
-    protected List<Exclusion> getAetherExclusions(org.apache.maven.model.Dependency dependency) {
+    private List<Exclusion> getAetherExclusions(org.apache.maven.model.Dependency dependency) {
         List<org.apache.maven.model.Exclusion> mavenExclusions = dependency.getExclusions();
-        List<Exclusion> exclusions = new ArrayList<Exclusion>(mavenExclusions.size());
+        List<Exclusion> exclusions = new ArrayList<>(mavenExclusions.size());
         for(org.apache.maven.model.Exclusion mavenExclusion : mavenExclusions) {
             exclusions.add(new Exclusion(stringOrWildcard(mavenExclusion.getGroupId()),
                     stringOrWildcard(mavenExclusion.getArtifactId()), "*", "*"));
@@ -417,7 +514,7 @@ public class MavenRepositorySystem {
     }
 
     private List<RemoteRepository> toRemoteRepositories(List<Repository> repositories) {
-        List<RemoteRepository> remoteRepositories = new ArrayList<RemoteRepository>(repositories.size());
+        List<RemoteRepository> remoteRepositories = new ArrayList<>(repositories.size());
         for(Repository repository : repositories) {
             remoteRepositories.add(ArtifactDescriptorUtils.toRemoteRepository(repository));
         }

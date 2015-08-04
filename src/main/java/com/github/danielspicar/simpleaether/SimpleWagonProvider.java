@@ -10,7 +10,7 @@ import org.eclipse.aether.transport.wagon.WagonProvider;
  *
  * @author daniel
  */
-public class SimpleWagonProvider implements WagonProvider {
+class SimpleWagonProvider implements WagonProvider {
 
     @Override
     public Wagon lookup(String roleHint) throws Exception {
