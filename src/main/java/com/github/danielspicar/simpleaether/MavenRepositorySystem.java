@@ -397,7 +397,7 @@ public class MavenRepositorySystem {
         Model model = getEffectiveModel(pom);
         List<Artifact> artifacts = new LinkedList<>();
         for(org.apache.maven.model.Dependency dependency : model.getDependencies()) {
-            Artifact artifact = new DefaultArtifact(dependency.getGroupId(), dependency.getArtifactId(), dependency.getType(), dependency.getVersion());
+            Artifact artifact = new DefaultArtifact(dependency.getGroupId(), dependency.getArtifactId(), dependency.getClassifier(), dependency.getType(), dependency.getVersion());
             artifacts.add(artifact);
         }
 
@@ -406,10 +406,23 @@ public class MavenRepositorySystem {
 
     /**
      * Resolve an artifact and all its runtime dependencies.
+     *
+     * @return the artifact and its transitive runtime dependencies as files.
      */
     @SuppressWarnings("unchecked")
     public List<File> resolveDependencies(String groupId, String artifactId, String classifier, String extension, String version) throws DependencyResolutionException {
-        Artifact artifact = new DefaultArtifact(groupId, artifactId, classifier, extension, version);
+        Artifact artifact = new DefaultArtifact(
+                groupId, artifactId, classifier, extension, version);
+        return resolveDependencies(artifact, Collections.EMPTY_LIST, Collections.EMPTY_LIST);
+    }
+
+    /**
+     * Resolve an artifact and all its runtime dependencies.
+     *
+     * @return the artifact and its transitive runtime dependencies as files.
+     */
+    @SuppressWarnings("unchecked")
+    public List<File> resolveDependencies(Artifact artifact) throws DependencyResolutionException {
         return resolveDependencies(artifact, Collections.EMPTY_LIST, Collections.EMPTY_LIST);
     }
 
